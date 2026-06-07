@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>酷記帳 PWA</title>
+  
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="酷記帳">
+  
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <style>
+    /* 讓 PWA 更像原生 App 的體驗，防止網頁上下橡皮筋回彈 */
+    html, body {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0b0f19;
+      color: #f3f4f6;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  </style>
+</head>
+<body class="font-sans antialiased">
+
+  <div id="main-screen" class="flex flex-col h-full justify-between p-6 pt-12">
+    
+    <div class="flex-1 flex flex-col items-center justify-center space-y-6">
+      <div class="text-center">
+        <p class="text-sm text-gray-400 tracking-wider font-medium">本月目前累計消費</p>
+        <h1 id="total-amount" class="text-4xl font-extrabold text-indigo-400 mt-1">$0</h1>
+      </div>
+      
+      <div class="w-64 h-64 relative flex items-center justify-center">
+        <canvas id="expense-chart"></canvas>
+        <div id="no-data-tip" class="absolute text-gray-500 text-sm hidden">本月尚無記帳數據</div>
+      </div>
+    </div>
+    
+    <div class="safe-bottom w-full mb-4">
+      <button onclick="openLedger()" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-500/30 active:scale-95 transition-transform duration-100 text-lg">
+        + 新增一筆消費
+      </button>
+    </div>
+  </div>
+
+  <div id="ledger-modal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex-col justify-end z-50">
+    <div class="bg-gray-900 rounded-t-3xl p-6 space-y-6 max-h-[90vh] overflow-y-auto safe-bottom border-t border-gray-800">
+      
+      <div class="flex justify-between items-center">
+        <h2 id="step-title" class="text-xl font-bold text-gray-200">步驟 1: 選擇日期</h2>
+        <button onclick="closeLedger()" class="text-gray-400 hover:text-white text-sm bg-gray-800 px-3 py-1 rounded-full">取消</button>
+      </div>
+
+      <div class="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+        <div id="progress-bar" class="bg-indigo-500 h-full w-1/5 transition-all duration-300"></div>
+      </div>
+
+      <div id="form-container" class="space-y-6 min-h-[250px] flex flex-col justify-center">
+        
+        <div id="step-1" class="step-field space-y-2">
+          <label class="block text-sm text-gray-400">消費日期</label>
+          <input type="date" id="input-date" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <div id="step-2" class="step-field space-y-3 hidden">
+          <label class="block text-sm text-gray-400">選擇大項目</label>
+          <div class="grid grid-cols-3 gap-3">
+            <button onclick="selectCategory('餐飲', '🍔')" class="cat-btn bg-gray-800 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center space-y-1 border border-transparent">
+              <span class="text-2xl">🍔</span><span class="text-sm">餐飲</span>
+            </button>
+            <button onclick="selectCategory('交通', '🚗')" class="cat-btn bg-gray-800 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center space-y-1 border border-transparent">
+              <span class="text-2xl">🚗</span><span class="text-sm">交通</span>
+            </button>
+            <button onclick="selectCategory('娛樂', '🎉')" class="cat-btn bg-gray-800 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center space-y-1 border border-transparent">
+              <span class="text-2xl">🎉</span><span class="text-sm">娛樂</span>
+            </button>
+            <button onclick="selectCategory('購物', '🛍️')" class="cat-btn bg-gray-800 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center space-y-1 border border-transparent">
+              <span class="text-2xl">🛍️</span><span class="text-sm">購物</span>
+            </button>
+            <button onclick="selectCategory('居家', '🏠')" class="cat-btn bg-gray-800 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center space-y-1 border border-transparent">
+              <span class="text-2xl">🏠</span><span class="text-sm">居家</span>
+            </button>
+            <button onclick="selectCategory('其他', '✨')" class="cat-btn bg-gray-800 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center space-y-1 border border-transparent">
+              <span class="text-2xl">✨</span><span class="text-sm">其他</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="step-3" class="step-field space-y-2 hidden">
+          <label class="block text-sm text-gray-400">消費細項說明</label>
+          <input type="text" id="input-detail" placeholder="例如：午餐便當、飲料..." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" autocomplete="off">
+        </div>
+
+        <div id="step-4" class="step-field space-y-2 hidden">
+          <label class="block text-sm text-gray-400">金額 ($)</label>
+          <input type="number" id="input-amount" inputmode="decimal" placeholder="0" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-xl font-bold focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <div id="step-5" class="step-field space-y-2 hidden">
+          <label class="block text-sm text-gray-400">備註 (選填)</label>
+          <input type="text" id="input-note" placeholder="想寫什麼都可以..." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" autocomplete="off">
+        </div>
+
+      </div>
+
+      <div class="pt-2">
+        <button id="next-btn" onclick="nextStep()" class="w-full bg-indigo-500 text-white font-bold py-3 rounded-xl active:scale-95 transition-transform duration-100">
+          下一步
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // 狀態管理
+    let currentStep = 1;
+    let chartInstance = null;
+    
+    // 暫存當前填寫數據
+    let currentRecord = {
+      date: '',
+      category: '',
+      detail: '',
+      amount: 0,
+      note: ''
+    };
+
+    // 步驟定義
+    const stepTitles = {
+      1: "步驟 1: 選擇日期",
+      2: "步驟 2: 選擇大項目",
+      3: "步驟 3: 輸入細項說明",
+      4: "步驟 4: 輸入消費金額",
+      5: "步驟 5: 填寫備註 (選填)"
+    };
+
+    // 初始化頁面
+    window.onload = function() {
+      initChart();
+      updateDashboard();
+    };
+
+    // 打開記帳引導彈窗
+    function openLedger() {
+      currentStep = 1;
+      // 預設日期為今天 (台灣時區)
+      const today = new Date().toLocaleDateString('en-CA');
+      document.getElementById('input-date').value = today;
+      
+      // 清空舊輸入值
+      document.getElementById('input-detail').value = '';
+      document.getElementById('input-amount').value = '';
+      document.getElementById('input-note').value = '';
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('border-indigo-500', 'bg-indigo-900/40'));
+
+      showStep(currentStep);
+      document.getElementById('ledger-modal').classList.remove('hidden');
+      document.getElementById('ledger-modal').classList.add('flex');
+    }
+
+    // 關閉彈窗回到主畫面
+    function closeLedger() {
+      document.getElementById('ledger-modal').classList.add('hidden');
+      document.getElementById('ledger-modal').classList.remove('flex');
+    }
+
+    // 切換顯示當前步驟
+    function showStep(step) {
+      // 更新標題與進度條
+      document.getElementById('step-title').innerText = stepTitles[step];
+      document.getElementById('progress-bar').style.width = `${(step / 5) * 100}%`;
+
+      // 隱藏所有步驟，只顯示當前步驟
+      for (let i = 1; i <= 5; i++) {
+        const field = document.getElementById(`step-${i}`);
+        if (i === step) {
+          field.classList.remove('hidden');
+          // 自動聚焦輸入框，優化 iPhone 輸入體驗
+          if (step === 3) document.getElementById('input-detail').focus();
+          if (step === 4) document.getElementById('input-amount').focus();
+          if (step === 5) document.getElementById('input-note').focus();
+        } else {
+          field.classList.add('hidden');
+        }
+      }
+
+      // 變更按鈕文字
+      const nextBtn = document.getElementById('next-btn');
+      if (step === 5) {
+        nextBtn.innerText = "完成記帳並儲存";
+        nextBtn.classList.replace('bg-indigo-500', 'bg-emerald-500');
+      } else {
+        nextBtn.innerText = "下一步";
+        nextBtn.classList.replace('bg-emerald-500', 'bg-indigo-500');
+      }
+    }
+
+    // 處理選擇大項目
+    function selectCategory(catName, icon) {
+      currentRecord.category = catName;
+      
+      // 視覺反饋：高亮被選中的按鈕
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        if (btn.innerText.includes(catName)) {
+          btn.classList.add('border-indigo-500', 'bg-indigo-900/40');
+        } else {
+          btn.classList.remove('border-indigo-500', 'bg-indigo-900/40');
+        }
+      });
+
+      // 選完大項目後，自動幫使用者跨入下一步，省去點擊
+      setTimeout(() => { nextStep(); }, 200);
+    }
+
+    // 點擊下一步的防呆與邏輯
+    function nextStep() {
+      if (currentStep === 1) {
+        currentRecord.date = document.getElementById('input-date').value;
+        if (!currentRecord.date) return alert('請選擇日期');
+        currentStep = 2;
+        showStep(currentStep);
+      } 
+      else if (currentStep === 2) {
+        if (!currentRecord.category) return alert('請選擇一個大項目');
+        currentStep = 3;
+        showStep(currentStep);
+      } 
+      else if (currentStep === 3) {
+        currentRecord.detail = document.getElementById('input-detail').value.trim();
+        if (!currentRecord.detail) return alert('請填寫細項說明');
+        currentStep = 4;
+        showStep(currentStep);
+      } 
+      else if (currentStep === 4) {
+        const amt = parseFloat(document.getElementById('input-amount').value);
+        if (isNaN(amt) || amt <= 0) return alert('請輸入正確的金額');
+        currentRecord.amount = amt;
+        currentStep = 5;
+        showStep(currentStep);
+      } 
+      else if (currentStep === 5) {
+        currentRecord.note = document.getElementById('input-note').value.trim();
+        saveRecord();
+      }
+    }
+
+    // 儲存資料至 localStorage
+    function saveRecord() {
+      const records = JSON.parse(localStorage.getItem('cool_ledger_data') || '[]');
+      records.push({...currentRecord});
+      localStorage.setItem('cool_ledger_data', JSON.stringify(records));
+      
+      // 記完一筆自動回到主畫面
+      closeLedger();
+      // 刷新主畫面數據與圖表
+      updateDashboard();
+    }
+
+    // 初始化 Chart.js 圓餅圖
+    function initChart() {
+      const ctx = document.getElementById('expense-chart').getContext('2d');
+      chartInstance = new Chart(ctx, {
+        type: 'doughnut', // 使用環狀圓餅圖，更有現代感
+        data: {
+          labels: [],
+          datasets: [{
+            data: [],
+            backgroundColor: ['#f87171', '#60a5fa', '#fbbf24', '#34d399', '#a78bfa', '#9ca3af'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: { color: '#9ca3af', font: { size: 12 } }
+            }
+          }
+        }
+      });
+    }
+
+    // 讀取本月資料並更新 Dashboard
+    function updateDashboard() {
+      const records = JSON.parse(localStorage.getItem('cool_ledger_data') || '[]');
+      
+      // 取得當前月份 (YYYY-MM)
+      const currentMonthStr = new Date().toLocaleDateString('en-CA').substring(0, 7);
+
+      // 過濾出當月資料
+      const thisMonthRecords = records.filter(r => r.date.startsWith(currentMonthStr));
+
+      // 計算總金額與各大項統計
+      let total = 0;
+      const catTotals = {};
+
+      thisMonthRecords.forEach(r => {
+        total += r.amount;
+        catTotals[r.category] = (catTotals[r.category] || 0) + r.amount;
+      });
+
+      // 更新總金額顯示
+      document.getElementById('total-amount').innerText = `$${total.toLocaleString()}`;
+
+      // 更新圖表
+      const labels = Object.keys(catTotals);
+      const data = Object.values(catTotals);
+
+      if (labels.length === 0) {
+        document.getElementById('no-data-tip').classList.remove('hidden');
+        chartInstance.data.labels = [];
+        chartInstance.data.datasets[0].data = [];
+      } else {
+        document.getElementById('no-data-tip').classList.add('hidden');
+        chartInstance.data.labels = labels;
+        chartInstance.data.datasets[0].data = data;
+      }
+      chartInstance.update();
+    }
+  </script>
+</body>
+</html>
