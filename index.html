@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>記帳</title>
+  <title>酷記帳 PWA</title>
   
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="記帳Web">
+  <meta name="apple-mobile-web-app-title" content="酷記帳">
   
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%23111827%22/><text y=%22.9em%22 x=%227%22 font-size=%2276%22>💰</text></svg>">
   
@@ -27,10 +27,13 @@
     .safe-bottom {
       padding-bottom: env(safe-area-inset-bottom);
     }
-    /* 讓明細列表可以滾動，但主頁面固定 */
     .scrollable-list {
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
+    }
+    /* 右側滑入動畫樣式 */
+    .page-slide {
+      transition: transform 0.3s ease-in-out;
     }
   </style>
 </head>
@@ -40,35 +43,50 @@
     
     <div class="flex justify-between items-center w-full">
       <span class="text-xl font-bold text-gray-200">酷記帳</span>
-      <button onclick="syncToGoogle()" class="flex items-center space-x-1 bg-gray-800 text-xs text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-full active:scale-95">
-        <span>☁️ 同步到雲端</span>
+      <button id="sync-btn" onclick="syncToGoogle()" class="flex items-center space-x-1 bg-gray-800 text-xs text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-full active:scale-95">
+        <span id="sync-text">☁️ 同步新改動</span>
       </button>
     </div>
 
     <div class="flex flex-col items-center justify-center space-y-4 my-2">
       <div class="text-center">
         <p class="text-xs text-gray-400 tracking-wider">本月累計消費</p>
-        <h1 id="total-amount" class="text-3xl font-extrabold text-indigo-400 mt-0.5">$0</h1>
+        <h1 id="total-amount" class="text-4xl font-extrabold text-indigo-400 mt-0.5">$0</h1>
       </div>
       
-      <div class="w-40 h-40 relative flex items-center justify-center">
+      <div class="w-44 h-44 relative flex items-center justify-center">
         <canvas id="expense-chart"></canvas>
         <div id="no-data-tip" class="absolute text-gray-500 text-xs hidden">本月尚無數據</div>
       </div>
     </div>
 
-    <div class="flex-1 scrollable-list border-t border-gray-800/80 pt-3 mb-4">
-      <p class="text-xs text-gray-400 font-medium mb-2 sticky top-0 bg-[#0b0f19] py-1">當月消費細項 (點擊可編輯)</p>
-      <div id="history-list" class="space-y-2">
+    <div class="flex-1 flex flex-col min-h-0 mb-4">
+      <div class="flex justify-between items-center mb-2">
+        <p class="text-xs text-gray-400 font-medium">近期消費紀錄</p>
+        <button onclick="toggleHistoryPage(true)" class="text-xs text-indigo-400 font-semibold hover:underline">查看完整歷史 ➡️</button>
+      </div>
+      <div id="recent-list" class="space-y-2 flex-1 scrollable-list">
         </div>
     </div>
     
     <div class="safe-bottom w-full">
-      <button onclick="openLedger()" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-3.5 rounded-2xl shadow-lg active:scale-95 transition-transform duration-100 text-base">
+      <button onclick="openLedger()" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-transform duration-100 text-base">
         + 新增一筆消費
       </button>
     </div>
   </div>
+
+
+  <div id="history-page" class="page-slide fixed inset-0 bg-[#0b0f19] z-40 flex flex-col p-6 pt-12 transform translate-x-full">
+    <div class="flex justify-between items-center mb-6">
+      <button onclick="toggleHistoryPage(false)" class="text-sm text-gray-400 bg-gray-800 px-3 py-1.5 rounded-full flex items-center">⬅️ 返回首頁</button>
+      <h2 class="text-lg font-bold text-gray-200">完整歷史明細</h2>
+      <div class="w-16"></div> </div>
+
+    <div id="full-history-list" class="flex-1 scrollable-list space-y-2.5 pb-8">
+      </div>
+  </div>
+
 
   <div id="ledger-modal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex-col justify-end z-50">
     <div class="bg-gray-900 rounded-t-3xl p-6 space-y-6 max-h-[90vh] overflow-y-auto safe-bottom border-t border-gray-800">
@@ -133,20 +151,18 @@
     </div>
   </div>
 
+
   <script>
-    // ⚠️ 請在下方貼上你從 Google Sheets 部署得到的 Apps Script 網頁應用程式 URL
-    const GOOGLE_GAS_URL = "https://script.google.com/macros/s/AKfycbzDHtwqiQsHGRNUkWwzywIlNDprchAYFSSZixKTxWWviVnS0CUDwtSgWQUocjOv0I-8/exec";
+    // ⚠️ 貼上你新部署的 Google GAS 網址
+    const GOOGLE_GAS_URL = "你的_GOOGLE_GAS_網頁應用程式_網址";
 
     let currentStep = 1;
     let chartInstance = null;
-    let editingIndex = null; // 紀錄當前是否在編輯某筆資料 (-1 或 null 代表新增)
+    let editingId = null; // 改用唯一的 ID 來識別目前編輯哪一筆
     
-    let currentRecord = { date: '', category: '', detail: '', amount: 0, note: '' };
+    let currentRecord = { id: '', date: '', category: '', detail: '', amount: 0, note: '', synced: false };
 
-    const stepTitles = {
-      1: "步驟 1: 選擇日期", 2: "步驟 2: 選擇大項目", 3: "步驟 3: 輸入細項說明", 4: "步驟 4: 輸入消費金額", 5: "步驟 5: 填寫備註 (選填)"
-    };
-
+    const stepTitles = { 1: "步驟 1: 選擇日期", 2: "步驟 2: 選擇大項目", 3: "步驟 3: 輸入細項說明", 4: "步驟 4: 輸入消費金額", 5: "步驟 5: 填寫備註 (選填)" };
     const categoryIcons = { '餐飲': '🍔', '交通': '🚗', '娛樂': '🎉', '購物': '🛍️', '居家': '🏠', '其他': '✨' };
 
     window.onload = function() {
@@ -154,26 +170,38 @@
       updateDashboard();
     };
 
-    // 開啟記帳視窗 (可能是新增，也可能是編輯)
-    function openLedger(index = null) {
-      if (index !== null) {
-        // 進入【編輯模式】
-        editingIndex = index;
+    // 控制完整歷史頁面的滑入/滑出
+    function toggleHistoryPage(show) {
+      const page = document.getElementById('history-page');
+      if (show) {
+        page.classList.remove('translate-x-full');
+        page.classList.add('translate-x-0');
+      } else {
+        page.classList.remove('translate-x-0');
+        page.classList.add('translate-x-full');
+      }
+    }
+
+    function openLedger(id = null) {
+      if (id !== null) {
+        // 【編輯模式】
+        editingId = id;
         const records = getRecords();
-        currentRecord = { ...records[index] };
+        const record = records.find(r => r.id === id);
+        currentRecord = { ...record };
         
         document.getElementById('input-date').value = currentRecord.date;
         document.getElementById('input-detail').value = currentRecord.detail;
         document.getElementById('input-amount').value = currentRecord.amount;
         document.getElementById('input-note').value = currentRecord.note;
         document.getElementById('delete-btn').classList.remove('hidden');
-        
-        // 高亮大項目按鈕
         highlightCategoryButton(currentRecord.category);
       } else {
-        // 進入【新增模式】
-        editingIndex = null;
-        currentRecord = { date: '', category: '', detail: '', amount: 0, note: '' };
+        // 【新增模式】
+        editingId = null;
+        // 隨機生成唯一 ID
+        const randomId = 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        currentRecord = { id: randomId, date: '', category: '', detail: '', amount: 0, note: '', synced: false };
         document.getElementById('input-date').value = new Date().toLocaleDateString('en-CA');
         document.getElementById('input-detail').value = '';
         document.getElementById('input-amount').value = '';
@@ -209,7 +237,7 @@
 
       const nextBtn = document.getElementById('next-btn');
       if (step === 5) {
-        nextBtn.innerText = editingIndex !== null ? "儲存修改" : "完成記帳並儲存";
+        nextBtn.innerText = editingId !== null ? "儲存修改" : "完成記帳並儲存";
         nextBtn.classList.replace('bg-indigo-500', 'bg-emerald-500');
       } else {
         nextBtn.innerText = "下一步";
@@ -264,25 +292,27 @@
       }
     }
 
-    // 儲存（包含新增與修改）
     function saveRecord() {
       const records = getRecords();
-      if (editingIndex !== null) {
-        records[editingIndex] = { ...currentRecord }; // 取代舊資料
+      // 無論新增還是修改，只要動過，雲端同步狀態都要洗回 false (需要重新/覆蓋同步)
+      currentRecord.synced = false; 
+
+      if (editingId !== null) {
+        const index = records.findIndex(r => r.id === editingId);
+        if (index !== -1) records[index] = { ...currentRecord };
       } else {
-        records.push({ ...currentRecord }); // 新增
+        records.push({ ...currentRecord });
       }
       localStorage.setItem('cool_ledger_data', JSON.stringify(records));
       closeLedger();
       updateDashboard();
     }
 
-    // 刪除目前選中的紀錄
     function deleteCurrentRecord() {
-      if (editingIndex === null) return;
-      if (confirm('確定要刪除這筆紀錄嗎？')) {
-        const records = getRecords();
-        records.splice(editingIndex, 1);
+      if (editingId === null) return;
+      if (confirm('確定要刪除這筆紀錄嗎？\n(注意：本地刪除後，雲端試算表需手動刪除以免資料留底喔)')) {
+        let records = getRecords();
+        records = records.filter(r => r.id !== editingId);
         localStorage.setItem('cool_ledger_data', JSON.stringify(records));
         closeLedger();
         updateDashboard();
@@ -293,38 +323,48 @@
       return JSON.parse(localStorage.getItem('cool_ledger_data') || '[]');
     }
 
-    // 同步到 Google 試算表
+    // ☁️ 雲端智慧同步功能
     function syncToGoogle() {
       if (!GOOGLE_GAS_URL || GOOGLE_GAS_URL.includes("你的")) {
-        return alert("請先在 HTML 內填入你部署的 Google GAS 網址！");
+        return alert("請先填入最新的 Google GAS 網址！");
       }
       
       const records = getRecords();
-      if (records.length === 0) return alert("目前本地沒有任何資料可以同步！");
+      // 🌟 關鍵改動：只過濾出「尚未同步 (synced === false)」的改動或新資料
+      const unSyncedRecords = records.filter(r => !r.synced);
+      
+      if (unSyncedRecords.length === 0) {
+        return alert("🎉 所有資料均已與雲端同步，沒有新改動！");
+      }
 
-      if (!confirm(`準備將本地共 ${records.length} 筆資料同步至 Google 試算表？\n(注意：這會將目前所有資料整批追加進去)`)) return;
+      if (!confirm(`偵測到 ${unSyncedRecords.length} 筆新改動（包含新增與修改）。\n確定要同步至 Google 試算表？`)) return;
 
-      // 顯示同步中狀態
-      const syncBtn = document.querySelector('button[onclick="syncToGoogle()"]');
-      const originalText = syncBtn.innerHTML;
-      syncBtn.innerHTML = "⏳ 同步中...";
+      const syncBtn = document.getElementById('sync-btn');
       syncBtn.disabled = true;
+      document.getElementById('sync-text').innerText = "⏳ 雲端同步中...";
 
       fetch(GOOGLE_GAS_URL, {
         method: 'POST',
-        mode: 'no-cors', // 允許跨網域
+        mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(records)
+        body: JSON.stringify(unSyncedRecords) // 僅發送未同步的部分
       })
       .then(() => {
-        alert("🎉 同步指令已發送至雲端！請檢查 Google 試算表。");
+        // 🌟 同步成功後，將這些被送出去的資料在本地標記為 synced = true
+        const updatedRecords = records.map(r => {
+          if (!r.synced) r.synced = true;
+          return r;
+        });
+        localStorage.setItem('cool_ledger_data', JSON.stringify(updatedRecords));
+        alert("🎉 雲端同步/修改完成！");
+        updateDashboard();
       })
       .catch(err => {
-        alert("同步失敗，請檢查網路或 GAS 設定：" + err);
+        alert("同步失敗：" + err);
       })
       .finally(() => {
-        syncBtn.innerHTML = originalText;
         syncBtn.disabled = false;
+        document.getElementById('sync-text').innerText = "☁️ 同步新改動";
       });
     }
 
@@ -332,58 +372,78 @@
       const ctx = document.getElementById('expense-chart').getContext('2d');
       chartInstance = new Chart(ctx, {
         type: 'doughnut',
-        data: {
-          labels: [],
-          datasets: [{ data: [], backgroundColor: ['#f87171', '#60a5fa', '#fbbf24', '#34d399', '#a78bfa', '#9ca3af'], borderWidth: 0 }]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } } // 縮小圖表，隱藏圖例
-        }
+        data: { labels: [], datasets: [{ data: [], backgroundColor: ['#f87171', '#60a5fa', '#fbbf24', '#34d399', '#a78bfa', '#9ca3af'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
       });
+    }
+
+    // 渲染清單元件的輔助函式
+    function createItemHtml(r, index, actualId) {
+      const icon = categoryIcons[r.category] || '✨';
+      const syncBadge = r.synced 
+        ? `<span class="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-1.5 py-0.5 rounded-md">已同步</span>`
+        : `<span class="text-[9px] bg-amber-950 text-amber-400 border border-amber-900 px-1.5 py-0.5 rounded-md">未同步</span>`;
+      
+      return `
+        <div onclick="openLedger('${actualId}'); event.stopPropagation();" class="flex justify-between items-center bg-gray-900/60 border border-gray-800/60 rounded-xl p-3 active:bg-gray-800 transition-colors">
+          <div class="flex items-center space-x-3">
+            <span class="text-xl bg-gray-800 p-1.5 rounded-lg">${icon}</span>
+            <div>
+              <div class="flex items-center space-x-2">
+                <p class="text-sm font-bold text-gray-200">${r.detail}</p>
+                ${syncBadge}
+              </div>
+              <p class="text-[10px] text-gray-500">${r.date} ${r.note ? '· ' + r.note : ''}</p>
+            </div>
+          </div>
+          <span class="text-sm font-extrabold text-indigo-400">$${r.amount}</span>
+        </div>
+      `;
     }
 
     function updateDashboard() {
       const records = getRecords();
       const currentMonthStr = new Date().toLocaleDateString('en-CA').substring(0, 7);
 
-      // 過濾當月資料
-      const thisMonthRecords = records.filter(r => r.date.startsWith(currentMonthStr));
-
       let total = 0;
       const catTotals = {};
-      const historyList = document.getElementById('history-list');
-      historyList.innerHTML = ''; // 清空列表
+      
+      const recentList = document.getElementById('recent-list');
+      const fullHistoryList = document.getElementById('full-history-list');
+      
+      recentList.innerHTML = '';
+      fullHistoryList.innerHTML = '';
 
-      // 渲染歷史列表（依照時間倒序排列，最新的在上面）
-      records.forEach((r, index) => {
-        // 只統計當月的金額與圖表
+      // 將所有紀錄按時間從新到舊排序
+      const sortedRecords = [...records].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      let recentCount = 0;
+
+      sortedRecords.forEach((r) => {
+        // 統計當月金額與圓餅圖
         if (r.date.startsWith(currentMonthStr)) {
           total += r.amount;
           catTotals[r.category] = (catTotals[r.category] || 0) + r.amount;
         }
 
-        // 列表渲染全部或當月皆可，這裡渲染當月資料方便對齊
-        if (r.date.startsWith(currentMonthStr)) {
-          const icon = categoryIcons[r.category] || '✨';
-          const itemHtml = `
-            <div onclick="openLedger(${index})" class="flex justify-between items-center bg-gray-900/60 border border-gray-800/60 rounded-xl p-3 active:bg-gray-800 transition-colors">
-              <div class="flex items-center space-x-3">
-                <span class="text-xl bg-gray-800 p-1.5 rounded-lg">${icon}</span>
-                <div>
-                  <p class="text-sm font-bold text-gray-200">${r.detail}</p>
-                  <p class="text-[10px] text-gray-500">${r.date.substring(5)} ${r.note ? '· ' + r.note : ''}</p>
-                </div>
-              </div>
-              <span class="text-sm font-extrabold text-indigo-400">$${r.amount}</span>
-            </div>
-          `;
-          historyList.insertAdjacentHTML('afterbegin', itemHtml); // 新的在最上面
+        // 生成 HTML
+        const html = createItemHtml(r, null, r.id);
+
+        // 1. 渲染到「完整歷史紀錄頁面」
+        fullHistoryList.insertAdjacentHTML('beforeend', html);
+
+        // 2. 渲染到首頁的「近期紀錄」（最多只放 3 筆）
+        if (recentCount < 3) {
+          recentList.insertAdjacentHTML('beforeend', html);
+          recentCount++;
         }
       });
 
-      if (historyList.innerHTML === '') {
-        historyList.innerHTML = '<p class="text-center text-xs text-gray-600 py-4">這個月還沒有任何記帳明細喔！</p>';
+      if (recentList.innerHTML === '') {
+        recentList.innerHTML = '<p class="text-center text-xs text-gray-600 py-4">本月尚無任何明細</p>';
+      }
+      if (fullHistoryList.innerHTML === '') {
+        fullHistoryList.innerHTML = '<p class="text-center text-xs text-gray-600 py-8">目前沒有任何記帳紀錄</p>';
       }
 
       document.getElementById('total-amount').innerText = `$${total.toLocaleString()}`;
